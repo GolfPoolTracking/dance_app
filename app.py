@@ -1,60 +1,54 @@
 import streamlit as st
-import json
-import os
+from st_supabase_connection import SupabaseConnection
 from datetime import date
 import random
-
-# For demonstration, we are using a local JSON file. 
-# Swap this with a database (like Supabase) for permanent web deployment.
-DATA_FILE = "grace_dance_data.json"
-
-def load_data():
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r") as f:
-            return json.load(f)
-    return {
-        "goals": [],
-        "exercises": [],
-        "corrections": [],
-        "last_motivation_date": ""
-    }
-
-def save_data(data):
-    with open(DATA_FILE, "w") as f:
-        json.dump(data, f)
 
 # Mobile-friendly page configuration
 st.set_page_config(page_title="Grace's Dance App", page_icon="💃", layout="centered")
 
-# Initialize session state variables
-if "data" not in st.session_state:
-    st.session_state.data = load_data()
+# Initialize the Supabase connection
+# This requires .streamlit/secrets.toml to be configured with your URL and KEY
+try:
+    conn = st.connection("supabase", type=SupabaseConnection)
+    supabase = conn.client # Expose the standard supabase-py client for CRUD operations
+except Exception as e:
+    st.error("Could not connect to Supabase. Check your secrets.toml file.")
+    st.stop()
 
+# Initialize session state for the daily popup
 if "motivation_cleared" not in st.session_state:
     st.session_state.motivation_cleared = False
 
-# The Daily Motivation Pop-up
+# --- Data Fetching ---
+# Fetching directly (without caching) ensures the app always shows the latest mobile inputs
+goals_data = supabase.table("goals").select("*").order("id").execute().data
+exercises_data = supabase.table("exercises").select("*").order("id").execute().data
+corrections_data = supabase.table("corrections").select("*").order("id").execute().data
+metadata = supabase.table("app_metadata").select("*").eq("key", "last_motivation_date").execute().data
+
+last_motivation_date = metadata[0]["value"] if metadata else ""
+
+# --- The Daily Motivation Pop-up ---
+today_str = str(date.today())
+active_goals = [g["text"] for g in goals_data if not g.get("completed", False)]
+
 @st.dialog("Daily Motivation 🌟")
 def motivation_popup(goal):
     st.write("Here is one of your goals to keep you moving today:")
     st.info(f"**{goal}**")
     if st.button("Let's Dance!", use_container_width=True):
         st.session_state.motivation_cleared = True
-        st.session_state.data["last_motivation_date"] = str(date.today())
-        save_data(st.session_state.data)
+        supabase.table("app_metadata").upsert({"key": "last_motivation_date", "value": today_str}).execute()
         st.rerun()
 
-# Check if we need to show the pop-up today
-today_str = str(date.today())
-active_goals = [g["text"] for g in st.session_state.data["goals"] if not g.get("completed", False)]
-
-if (st.session_state.data["last_motivation_date"] != today_str 
+# Trigger the pop-up if it hasn't been cleared today and there are active goals
+if (last_motivation_date != today_str 
     and not st.session_state.motivation_cleared 
     and active_goals):
     random_goal = random.choice(active_goals)
     motivation_popup(random_goal)
 
-# App Header
+# --- App Header ---
 st.title("💃 Grace's Irish Dance Hub")
 
 # Use tabs for a clean, mobile-centric UI
@@ -69,32 +63,29 @@ with tab1:
         new_goal = st.text_input("Add a new goal:")
         submitted = st.form_submit_button("Add Goal", use_container_width=True)
         if submitted and new_goal:
-            st.session_state.data["goals"].append({"text": new_goal, "completed": False})
-            save_data(st.session_state.data)
+            supabase.table("goals").insert({"text": new_goal, "completed": False}).execute()
             st.rerun()
             
     # List goals with checkboxes
     st.subheader("Progress")
-    if not st.session_state.data["goals"]:
+    if not goals_data:
         st.caption("No goals added yet.")
         
-    for i, goal in enumerate(st.session_state.data["goals"]):
+    for goal in goals_data:
         col1, col2 = st.columns([0.8, 0.2])
         with col1:
             is_checked = st.checkbox(
                 goal["text"], 
                 value=goal.get("completed", False), 
-                key=f"goal_{i}"
+                key=f"goal_{goal['id']}"
             )
-            # Save state if checkbox changes
+            # Update database if checkbox state changes
             if is_checked != goal.get("completed", False):
-                st.session_state.data["goals"][i]["completed"] = is_checked
-                save_data(st.session_state.data)
+                supabase.table("goals").update({"completed": is_checked}).eq("id", goal["id"]).execute()
                 st.rerun()
         with col2:
-            if st.button("❌", key=f"del_goal_{i}", help="Delete Goal"):
-                st.session_state.data["goals"].pop(i)
-                save_data(st.session_state.data)
+            if st.button("❌", key=f"del_goal_{goal['id']}", help="Delete Goal"):
+                supabase.table("goals").delete().eq("id", goal["id"]).execute()
                 st.rerun()
 
 # --- TAB 2: EXERCISES ---
@@ -109,54 +100,51 @@ with tab2:
             ex_notes = st.text_area("Notes")
             ex_submit = st.form_submit_button("Save Exercise", use_container_width=True)
             if ex_submit and ex_name:
-                st.session_state.data["exercises"].append({
+                supabase.table("exercises").insert({
                     "name": ex_name,
                     "reps": ex_reps,
                     "notes": ex_notes
-                })
-                save_data(st.session_state.data)
+                }).execute()
                 st.rerun()
 
     # Display exercises as clean cards
-    if not st.session_state.data["exercises"]:
+    if not exercises_data:
         st.caption("No exercises added yet.")
         
-    for i, ex in enumerate(st.session_state.data["exercises"]):
+    for ex in exercises_data:
         with st.container(border=True):
             col1, col2 = st.columns([0.85, 0.15])
             with col1:
                 st.markdown(f"**{ex['name']}** - *{ex['reps']}*")
-                if ex['notes']:
+                if ex.get('notes'):
                     st.caption(ex['notes'])
             with col2:
-                if st.button("❌", key=f"del_ex_{i}"):
-                    st.session_state.data["exercises"].pop(i)
-                    save_data(st.session_state.data)
+                if st.button("❌", key=f"del_ex_{ex['id']}"):
+                    supabase.table("exercises").delete().eq("id", ex["id"]).execute()
                     st.rerun()
 
 # --- TAB 3: CORRECTIONS ---
 with tab3:
     st.header("Teacher Corrections")
     
+    # Add new correction
     with st.form("new_correction_form", clear_on_submit=True):
         new_corr = st.text_area("What did the teacher say to work on?")
         corr_submit = st.form_submit_button("Add Correction", use_container_width=True)
         if corr_submit and new_corr:
-            st.session_state.data["corrections"].append(new_corr)
-            save_data(st.session_state.data)
+            supabase.table("corrections").insert({"text": new_corr}).execute()
             st.rerun()
             
     # List corrections
-    if not st.session_state.data["corrections"]:
+    if not corrections_data:
         st.caption("No corrections added yet.")
         
-    for i, corr in enumerate(st.session_state.data["corrections"]):
+    for corr in corrections_data:
         with st.container(border=True):
             col1, col2 = st.columns([0.85, 0.15])
             with col1:
-                st.write(corr)
+                st.write(corr["text"])
             with col2:
-                if st.button("❌", key=f"del_corr_{i}"):
-                    st.session_state.data["corrections"].pop(i)
-                    save_data(st.session_state.data)
+                if st.button("❌", key=f"del_corr_{corr['id']}"):
+                    supabase.table("corrections").delete().eq("id", corr["id"]).execute()
                     st.rerun()
