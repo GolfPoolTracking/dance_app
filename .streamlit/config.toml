@@ -1,2 +1,5 @@
 [theme]
 primaryColor = "#ff3399"
+backgroundColor = "#ffe6f2" # A soft, light pink background
+secondaryBackgroundColor = "#ffb3d9" # A slightly darker pink for sidebars/menus
+textColor = "#33001a" # A dark plum/almost black for readable text
