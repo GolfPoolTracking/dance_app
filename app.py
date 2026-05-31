@@ -15,20 +15,16 @@ try:
     supabase = conn.client 
 except Exception as e:
     st.error("⚠️ Connection Error: Could not authenticate with Supabase.")
-    st.info("Please verify that your Streamlit Cloud Secrets contain the exact text below:")
-    st.code("""
-[connections.supabase]
-SUPABASE_URL = "https://your-project-id.supabase.co"
-SUPABASE_KEY = "your-anon-public-key"
-    """, language="toml")
     st.stop()
 
-# Only run the rest of the app if the connection was successfully established
 if supabase is not None:
     
-    # Initialize session state for the daily popup
-    if "motivation_cleared" not in st.session_state:
-        st.session_state.motivation_cleared = False
+    # Get today's date string (e.g., "2026-05-31")
+    today_str = str(date.today())
+
+    # Initialize session state for tracking motivation across clicks
+    if "motivation_checked" not in st.session_state:
+        st.session_state.motivation_checked = False
 
     # --- Data Fetching ---
     try:
@@ -39,12 +35,9 @@ if supabase is not None:
         last_motivation_date = metadata[0]["value"] if metadata else ""
     except Exception as data_err:
         st.error("⚠️ Database Table Error: Could not fetch data.")
-        st.warning(f"Details: {data_err}")
-        st.info("Make sure you ran the SQL script in your Supabase SQL Editor to create the 'goals', 'exercises', 'corrections', and 'app_metadata' tables.")
         st.stop()
 
     # --- The Daily Motivation Pop-up ---
-    today_str = str(date.today())
     active_goals = [g["text"] for g in goals_data if not g.get("completed", False)]
 
     @st.dialog("Daily Motivation 🌟")
@@ -52,14 +45,16 @@ if supabase is not None:
         st.write("Here is one of your goals to keep you moving today:")
         st.info(f"**{goal}**")
         if st.button("Let's Dance!", use_container_width=True):
-            st.session_state.motivation_cleared = True
             supabase.table("app_metadata").upsert({"key": "last_motivation_date", "value": today_str}).execute()
             st.rerun()
 
-    # Trigger the pop-up if it hasn't been cleared today and there are active goals
+    # Only evaluate the pop-up logic ONCE per app run/session day
     if (last_motivation_date != today_str 
-        and not st.session_state.motivation_cleared 
+        and not st.session_state.motivation_checked 
         and active_goals):
+        
+        # Mark as checked for this session so interaction with forms won't re-trigger it
+        st.session_state.motivation_checked = True
         random_goal = random.choice(active_goals)
         motivation_popup(random_goal)
 
@@ -73,7 +68,6 @@ if supabase is not None:
     with tab1:
         st.header("My Goals")
         
-        # Add new goal
         with st.form("new_goal_form", clear_on_submit=True):
             new_goal = st.text_input("Add a new goal:")
             submitted = st.form_submit_button("Add Goal", use_container_width=True)
@@ -81,7 +75,6 @@ if supabase is not None:
                 supabase.table("goals").insert({"text": new_goal, "completed": False}).execute()
                 st.rerun()
                 
-        # List goals with checkboxes
         st.subheader("Progress")
         if not goals_data:
             st.caption("No goals added yet.")
@@ -94,46 +87,62 @@ if supabase is not None:
                     value=goal.get("completed", False), 
                     key=f"goal_{goal['id']}"
                 )
-                # Update database if checkbox state changes
                 if is_checked != goal.get("completed", False):
                     supabase.table("goals").update({"completed": is_checked}).eq("id", goal["id"]).execute()
                     st.rerun()
             with col2:
-                if st.button("❌", key=f"del_goal_{goal['id']}", help="Delete Goal"):
+                if st.button("❌", key=f"del_goal_{goal['id']}"):
                     supabase.table("goals").delete().eq("id", goal["id"]).execute()
                     st.rerun()
 
     # --- TAB 2: EXERCISES ---
     with tab2:
-        st.header("Exercise Routine")
+        st.header("Daily Exercise Routine")
         
-        # Hidden behind an expander to save screen space on mobile
         with st.expander("➕ Add New Exercise"):
             with st.form("new_exercise_form", clear_on_submit=True):
                 ex_name = st.text_input("Exercise Name")
-                ex_reps = st.text_input("Reps / Duration (e.g., 3x10 or 1 min)")
+                ex_reps = st.text_input("Reps / Duration (e.g., 3x10)")
                 ex_notes = st.text_area("Notes")
                 ex_submit = st.form_submit_button("Save Exercise", use_container_width=True)
                 if ex_submit and ex_name:
                     supabase.table("exercises").insert({
                         "name": ex_name,
                         "reps": ex_reps,
-                        "notes": ex_notes
+                        "notes": ex_notes,
+                        "last_completed_date": ""
                     }).execute()
                     st.rerun()
 
-        # Display exercises as clean cards
         if not exercises_data:
             st.caption("No exercises added yet.")
             
         for ex in exercises_data:
+            # Check if it was completed TODAY. If the date doesn't match today, it stays unchecked.
+            is_completed_today = ex.get("last_completed_date") == today_str
+            
             with st.container(border=True):
-                col1, col2 = st.columns([0.85, 0.15])
+                col1, col2, col3 = st.columns([0.15, 0.70, 0.15])
+                
                 with col1:
-                    st.markdown(f"**{ex['name']}** - *{ex['reps']}*")
+                    # Daily completion checkbox
+                    ex_check = st.checkbox("Done", value=is_completed_today, key=f"ex_check_{ex['id']}", label_visibility="collapsed")
+                    if ex_check != is_completed_today:
+                        new_date_value = today_str if ex_check else ""
+                        supabase.table("exercises").update({"last_completed_date": new_date_value}).eq("id", ex["id"]).execute()
+                        st.rerun()
+                        
+                with col2:
+                    # Text styling to cross out completed exercises
+                    if is_completed_today:
+                        st.markdown(f"~~**{ex['name']}** - *{ex['reps']}*~~")
+                    else:
+                        st.markdown(f"**{ex['name']}** - *{ex['reps']}*")
+                        
                     if ex.get('notes'):
                         st.caption(ex['notes'])
-                with col2:
+                        
+                with col3:
                     if st.button("❌", key=f"del_ex_{ex['id']}"):
                         supabase.table("exercises").delete().eq("id", ex["id"]).execute()
                         st.rerun()
@@ -142,15 +151,13 @@ if supabase is not None:
     with tab3:
         st.header("Teacher Corrections")
         
-        # Add new correction
         with st.form("new_correction_form", clear_on_submit=True):
             new_corr = st.text_area("What did the teacher say to work on?")
             corr_submit = st.form_submit_button("Add Correction", use_container_width=True)
             if corr_submit and new_corr:
                 supabase.table("corrections").insert({"text": new_corr}).execute()
                 st.rerun()
-                
-        # List corrections
+            
         if not corrections_data:
             st.caption("No corrections added yet.")
             
