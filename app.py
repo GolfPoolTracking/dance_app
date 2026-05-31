@@ -8,12 +8,12 @@ st.set_page_config(page_title="Grace's Dance App", page_icon="💃", layout="cen
 
 # Initialize the Supabase connection
 # This requires .streamlit/secrets.toml to be configured with your URL and KEY
-try:
-    conn = st.connection("supabase", type=SupabaseConnection)
-    supabase = conn.client # Expose the standard supabase-py client for CRUD operations
-except Exception as e:
-    st.error("Could not connect to Supabase. Check your secrets.toml file.")
-    st.stop()
+#try:
+#    conn = st.connection("supabase", type=SupabaseConnection)
+#    supabase = conn.client # Expose the standard supabase-py client for CRUD operations
+#except Exception as e:
+#    st.error("Could not connect to Supabase. Check your secrets.toml file.")
+#    st.stop()
 
 # Initialize session state for the daily popup
 if "motivation_cleared" not in st.session_state:
