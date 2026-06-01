@@ -6,6 +6,25 @@ import random
 # Mobile-friendly page configuration
 st.set_page_config(page_title="Grace's Dance App", page_icon="💃", layout="centered")
 
+# Inject custom CSS to tighten up the UI padding for mobile screens
+st.markdown("""
+    <style>
+        /* Shrink the padding inside the bordered containers (cards) */
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            padding: 0.5rem 1rem !important;
+        }
+        /* Reduce the vertical gap between elements inside the cards */
+        div[data-testid="stVerticalBlock"] > div {
+            gap: 0.2rem !important;
+        }
+        /* Make the tertiary delete buttons smaller */
+        button[kind="tertiary"] {
+            padding-top: 0rem !important;
+            padding-bottom: 0rem !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
 # Initialize the variable to prevent NameError
 supabase = None
 
@@ -19,10 +38,8 @@ except Exception as e:
 
 if supabase is not None:
     
-    # Get today's date string (e.g., "2026-05-31")
     today_str = str(date.today())
 
-    # Initialize session state for tracking motivation across clicks
     if "motivation_checked" not in st.session_state:
         st.session_state.motivation_checked = False
 
@@ -48,12 +65,10 @@ if supabase is not None:
             supabase.table("app_metadata").upsert({"key": "last_motivation_date", "value": today_str}).execute()
             st.rerun()
 
-    # Only evaluate the pop-up logic ONCE per app run/session day
     if (last_motivation_date != today_str 
         and not st.session_state.motivation_checked 
         and active_goals):
         
-        # Mark as checked for this session so interaction with forms won't re-trigger it
         st.session_state.motivation_checked = True
         random_goal = random.choice(active_goals)
         motivation_popup(random_goal)
@@ -61,7 +76,6 @@ if supabase is not None:
     # --- App Header ---
     st.title("💃 Grace's Irish Dance Hub")
 
-    # Use tabs for a clean, mobile-centric UI
     tab1, tab2, tab3 = st.tabs(["🎯 Goals", "💪 Exercises", "📝 Corrections"])
 
     # --- TAB 1: GOALS ---
@@ -80,18 +94,19 @@ if supabase is not None:
             st.caption("No goals added yet.")
             
         for goal in goals_data:
-            col1, col2 = st.columns([0.8, 0.2])
-            with col1:
-                is_checked = st.checkbox(
-                    goal["text"], 
-                    value=goal.get("completed", False), 
-                    key=f"goal_{goal['id']}"
-                )
-                if is_checked != goal.get("completed", False):
+            with st.container(border=True):
+                is_completed = goal.get("completed", False)
+                # Use markdown inside the checkbox label for a compact layout
+                label = f"~~**{goal['text']}**~~" if is_completed else f"**{goal['text']}**"
+                
+                is_checked = st.checkbox(label, value=is_completed, key=f"goal_{goal['id']}")
+                
+                if is_checked != is_completed:
                     supabase.table("goals").update({"completed": is_checked}).eq("id", goal["id"]).execute()
                     st.rerun()
-            with col2:
-                if st.button("❌", key=f"del_goal_{goal['id']}"):
+                
+                # Tertiary button makes it text-only
+                if st.button("❌ Remove", key=f"del_goal_{goal['id']}", type="tertiary"):
                     supabase.table("goals").delete().eq("id", goal["id"]).execute()
                     st.rerun()
 
@@ -118,34 +133,29 @@ if supabase is not None:
             st.caption("No exercises added yet.")
             
         for ex in exercises_data:
-            # Check if it was completed TODAY. If the date doesn't match today, it stays unchecked.
             is_completed_today = ex.get("last_completed_date") == today_str
             
             with st.container(border=True):
-                col1, col2, col3 = st.columns([0.15, 0.70, 0.15])
+                # .strip() cleans up accidental trailing spaces that break markdown bolding
+                name = ex['name'].strip()
+                reps = ex['reps'].strip()
                 
-                with col1:
-                    # Daily completion checkbox
-                    ex_check = st.checkbox("Done", value=is_completed_today, key=f"ex_check_{ex['id']}", label_visibility="collapsed")
-                    if ex_check != is_completed_today:
-                        new_date_value = today_str if ex_check else ""
-                        supabase.table("exercises").update({"last_completed_date": new_date_value}).eq("id", ex["id"]).execute()
-                        st.rerun()
-                        
-                with col2:
-                    # Text styling to cross out completed exercises
-                    if is_completed_today:
-                        st.markdown(f"~~**{ex['name']}** - *{ex['reps']}*~~")
-                    else:
-                        st.markdown(f"**{ex['name']}** - *{ex['reps']}*")
-                        
-                    if ex.get('notes'):
-                        st.caption(ex['notes'])
-                        
-                with col3:
-                    if st.button("❌", key=f"del_ex_{ex['id']}"):
-                        supabase.table("exercises").delete().eq("id", ex["id"]).execute()
-                        st.rerun()
+                # Put the main text INSIDE the checkbox label. This fixes the vertical stacking!
+                label = f"~~**{name}** - *{reps}*~~" if is_completed_today else f"**{name}** - *{reps}*"
+                
+                ex_check = st.checkbox(label, value=is_completed_today, key=f"ex_check_{ex['id']}")
+                
+                if ex_check != is_completed_today:
+                    new_date_value = today_str if ex_check else ""
+                    supabase.table("exercises").update({"last_completed_date": new_date_value}).eq("id", ex["id"]).execute()
+                    st.rerun()
+                    
+                if ex.get('notes'):
+                    st.caption(f"📝 {ex['notes']}")
+                    
+                if st.button("❌ Remove", key=f"del_ex_{ex['id']}", type="tertiary"):
+                    supabase.table("exercises").delete().eq("id", ex["id"]).execute()
+                    st.rerun()
 
     # --- TAB 3: CORRECTIONS ---
     with tab3:
@@ -163,10 +173,8 @@ if supabase is not None:
             
         for corr in corrections_data:
             with st.container(border=True):
-                col1, col2 = st.columns([0.85, 0.15])
-                with col1:
-                    st.write(corr["text"])
-                with col2:
-                    if st.button("❌", key=f"del_corr_{corr['id']}"):
-                        supabase.table("corrections").delete().eq("id", corr["id"]).execute()
-                        st.rerun()
+                st.write(corr["text"])
+                
+                if st.button("❌ Remove", key=f"del_corr_{corr['id']}", type="tertiary"):
+                    supabase.table("corrections").delete().eq("id", corr["id"]).execute()
+                    st.rerun()
