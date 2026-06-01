@@ -6,21 +6,42 @@ import random
 # Mobile-friendly page configuration
 st.set_page_config(page_title="Grace's Dance App", page_icon="💃", layout="centered")
 
-# Inject custom CSS to tighten up the UI padding for mobile screens
+# The UI/UX Master CSS Hack
 st.markdown("""
     <style>
-        /* Shrink the padding inside the bordered containers (cards) */
+        /* 1. Ultra-tight container padding to make the boxes smaller */
         div[data-testid="stVerticalBlockBorderWrapper"] {
-            padding: 0.5rem 1rem !important;
+            padding: 0.4rem 0.6rem !important;
         }
-        /* Reduce the vertical gap between elements inside the cards */
+        
+        /* 2. Remove default gap between the checkbox and the notes */
         div[data-testid="stVerticalBlock"] > div {
-            gap: 0.2rem !important;
+            gap: 0rem !important;
         }
-        /* Make the tertiary delete buttons smaller */
-        button[kind="tertiary"] {
-            padding-top: 0rem !important;
-            padding-bottom: 0rem !important;
+        
+        /* 3. Align notes perfectly under the text, skipping the checkbox square */
+        div[data-testid="stCaptionContainer"] {
+            padding-left: 1.8rem; 
+            margin-top: -0.4rem;
+            padding-bottom: 0.2rem;
+        }
+        
+        /* 4. FORCE COLUMNS TO STAY INLINE ON MOBILE */
+        @media (max-width: 600px) {
+            div[data-testid="stHorizontalBlock"] {
+                flex-wrap: nowrap !important;
+                align-items: center !important;
+            }
+            div[data-testid="column"] {
+                width: auto !important;
+                flex: 1 1 auto !important;
+                min-width: 0 !important; /* Allows text to wrap instead of pushing button down */
+            }
+        }
+        
+        /* 5. Clean up the toggle button alignment */
+        label[data-testid="stWidgetLabel"] {
+            padding-bottom: 0 !important;
         }
     </style>
 """, unsafe_allow_html=True)
@@ -80,7 +101,11 @@ if supabase is not None:
 
     # --- TAB 1: GOALS ---
     with tab1:
-        st.header("My Goals")
+        col_hdr, col_edit = st.columns([0.6, 0.4])
+        with col_hdr:
+            st.header("My Goals")
+        with col_edit:
+            edit_goals = st.toggle("✏️ Edit List", key="toggle_goals")
         
         with st.form("new_goal_form", clear_on_submit=True):
             new_goal = st.text_input("Add a new goal:")
@@ -89,30 +114,36 @@ if supabase is not None:
                 supabase.table("goals").insert({"text": new_goal, "completed": False}).execute()
                 st.rerun()
                 
-        st.subheader("Progress")
         if not goals_data:
             st.caption("No goals added yet.")
             
         for goal in goals_data:
             with st.container(border=True):
                 is_completed = goal.get("completed", False)
-                # Use markdown inside the checkbox label for a compact layout
                 label = f"~~**{goal['text']}**~~" if is_completed else f"**{goal['text']}**"
                 
-                is_checked = st.checkbox(label, value=is_completed, key=f"goal_{goal['id']}")
+                if edit_goals:
+                    c1, c2 = st.columns([0.85, 0.15])
+                    with c1:
+                        is_checked = st.checkbox(label, value=is_completed, key=f"goal_{goal['id']}")
+                    with c2:
+                        if st.button("❌", key=f"del_goal_{goal['id']}", type="tertiary", help="Remove"):
+                            supabase.table("goals").delete().eq("id", goal["id"]).execute()
+                            st.rerun()
+                else:
+                    is_checked = st.checkbox(label, value=is_completed, key=f"goal_{goal['id']}")
                 
                 if is_checked != is_completed:
                     supabase.table("goals").update({"completed": is_checked}).eq("id", goal["id"]).execute()
                     st.rerun()
-                
-                # Tertiary button makes it text-only
-                if st.button("❌ Remove", key=f"del_goal_{goal['id']}", type="tertiary"):
-                    supabase.table("goals").delete().eq("id", goal["id"]).execute()
-                    st.rerun()
 
     # --- TAB 2: EXERCISES ---
     with tab2:
-        st.header("Daily Exercise Routine")
+        col_hdr, col_edit = st.columns([0.6, 0.4])
+        with col_hdr:
+            st.header("Daily Routine")
+        with col_edit:
+            edit_exercises = st.toggle("✏️ Edit List", key="toggle_ex")
         
         with st.expander("➕ Add New Exercise"):
             with st.form("new_exercise_form", clear_on_submit=True):
@@ -136,30 +167,37 @@ if supabase is not None:
             is_completed_today = ex.get("last_completed_date") == today_str
             
             with st.container(border=True):
-                # .strip() cleans up accidental trailing spaces that break markdown bolding
                 name = ex['name'].strip()
                 reps = ex['reps'].strip()
-                
-                # Put the main text INSIDE the checkbox label. This fixes the vertical stacking!
                 label = f"~~**{name}** - *{reps}*~~" if is_completed_today else f"**{name}** - *{reps}*"
                 
-                ex_check = st.checkbox(label, value=is_completed_today, key=f"ex_check_{ex['id']}")
+                if edit_exercises:
+                    c1, c2 = st.columns([0.85, 0.15])
+                    with c1:
+                        ex_check = st.checkbox(label, value=is_completed_today, key=f"ex_check_{ex['id']}")
+                        if ex.get('notes'):
+                            st.caption(f"📝 {ex['notes']}")
+                    with c2:
+                        if st.button("❌", key=f"del_ex_{ex['id']}", type="tertiary", help="Remove"):
+                            supabase.table("exercises").delete().eq("id", ex["id"]).execute()
+                            st.rerun()
+                else:
+                    ex_check = st.checkbox(label, value=is_completed_today, key=f"ex_check_{ex['id']}")
+                    if ex.get('notes'):
+                        st.caption(f"📝 {ex['notes']}")
                 
                 if ex_check != is_completed_today:
                     new_date_value = today_str if ex_check else ""
                     supabase.table("exercises").update({"last_completed_date": new_date_value}).eq("id", ex["id"]).execute()
                     st.rerun()
-                    
-                if ex.get('notes'):
-                    st.caption(f"📝 {ex['notes']}")
-                    
-                if st.button("❌ Remove", key=f"del_ex_{ex['id']}", type="tertiary"):
-                    supabase.table("exercises").delete().eq("id", ex["id"]).execute()
-                    st.rerun()
 
     # --- TAB 3: CORRECTIONS ---
     with tab3:
-        st.header("Teacher Corrections")
+        col_hdr, col_edit = st.columns([0.6, 0.4])
+        with col_hdr:
+            st.header("Corrections")
+        with col_edit:
+            edit_corr = st.toggle("✏️ Edit List", key="toggle_corr")
         
         with st.form("new_correction_form", clear_on_submit=True):
             new_corr = st.text_area("What did the teacher say to work on?")
@@ -173,8 +211,13 @@ if supabase is not None:
             
         for corr in corrections_data:
             with st.container(border=True):
-                st.write(corr["text"])
-                
-                if st.button("❌ Remove", key=f"del_corr_{corr['id']}", type="tertiary"):
-                    supabase.table("corrections").delete().eq("id", corr["id"]).execute()
-                    st.rerun()
+                if edit_corr:
+                    c1, c2 = st.columns([0.85, 0.15])
+                    with c1:
+                        st.write(corr["text"])
+                    with c2:
+                        if st.button("❌", key=f"del_corr_{corr['id']}", type="tertiary", help="Remove"):
+                            supabase.table("corrections").delete().eq("id", corr["id"]).execute()
+                            st.rerun()
+                else:
+                    st.write(corr["text"])
