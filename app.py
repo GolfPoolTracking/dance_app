@@ -3,6 +3,11 @@ from st_supabase_connection import SupabaseConnection
 from datetime import date
 import random
 
+#ping to keep app & DB alive
+if st.query_params.get("view") == "ping":
+    st.write("Server is awake and ready! 🟢")
+    st.stop()
+
 # Mobile-friendly page configuration
 st.set_page_config(page_title="Grace's Dance App", page_icon="💃", layout="centered")
 
