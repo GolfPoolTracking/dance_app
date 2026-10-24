@@ -3,7 +3,7 @@ from st_supabase_connection import SupabaseConnection
 from datetime import date
 import random
 
-#ping to keep app & DB alive
+# Ping to keep app & DB alive
 if st.query_params.get("view") == "ping":
     st.write("Server is awake and ready! 🟢")
     st.stop()
@@ -40,7 +40,7 @@ st.markdown("""
             div[data-testid="column"] {
                 width: auto !important;
                 flex: 1 1 auto !important;
-                min-width: 0 !important; /* Allows text to wrap instead of pushing button down */
+                min-width: 0 !important;
             }
         }
         
@@ -69,12 +69,12 @@ if supabase is not None:
     if "motivation_checked" not in st.session_state:
         st.session_state.motivation_checked = False
 
-    # --- Data Fetching ---
+    # --- Data Fetching (Using Master Database dance_ prefixes) ---
     try:
-        goals_data = supabase.table("goals").select("*").order("id").execute().data
-        exercises_data = supabase.table("exercises").select("*").order("id").execute().data
-        corrections_data = supabase.table("corrections").select("*").order("id").execute().data
-        metadata = supabase.table("app_metadata").select("*").eq("key", "last_motivation_date").execute().data
+        goals_data = supabase.table("dance_goals").select("*").order("id").execute().data
+        exercises_data = supabase.table("dance_exercises").select("*").order("id").execute().data
+        corrections_data = supabase.table("dance_corrections").select("*").order("id").execute().data
+        metadata = supabase.table("dance_app_metadata").select("*").eq("key", "last_motivation_date").execute().data
         last_motivation_date = metadata[0]["value"] if metadata else ""
     except Exception as data_err:
         st.error("⚠️ Database Table Error: Could not fetch data.")
@@ -88,7 +88,7 @@ if supabase is not None:
         st.write("Here is one of your goals to keep you moving today:")
         st.info(f"**{goal}**")
         if st.button("Let's Dance!", use_container_width=True):
-            supabase.table("app_metadata").upsert({"key": "last_motivation_date", "value": today_str}).execute()
+            supabase.table("dance_app_metadata").upsert({"key": "last_motivation_date", "value": today_str}).execute()
             st.rerun()
 
     if (last_motivation_date != today_str 
@@ -116,7 +116,7 @@ if supabase is not None:
             new_goal = st.text_input("Add a new goal:")
             submitted = st.form_submit_button("Add Goal", use_container_width=True)
             if submitted and new_goal:
-                supabase.table("goals").insert({"text": new_goal, "completed": False}).execute()
+                supabase.table("dance_goals").insert({"text": new_goal, "completed": False}).execute()
                 st.rerun()
                 
         if not goals_data:
@@ -133,13 +133,13 @@ if supabase is not None:
                         is_checked = st.checkbox(label, value=is_completed, key=f"goal_{goal['id']}")
                     with c2:
                         if st.button("❌", key=f"del_goal_{goal['id']}", type="tertiary", help="Remove"):
-                            supabase.table("goals").delete().eq("id", goal["id"]).execute()
+                            supabase.table("dance_goals").delete().eq("id", goal["id"]).execute()
                             st.rerun()
                 else:
                     is_checked = st.checkbox(label, value=is_completed, key=f"goal_{goal['id']}")
                 
                 if is_checked != is_completed:
-                    supabase.table("goals").update({"completed": is_checked}).eq("id", goal["id"]).execute()
+                    supabase.table("dance_goals").update({"completed": is_checked}).eq("id", goal["id"]).execute()
                     st.rerun()
 
     # --- TAB 2: EXERCISES ---
@@ -157,7 +157,7 @@ if supabase is not None:
                 ex_notes = st.text_area("Notes")
                 ex_submit = st.form_submit_button("Save Exercise", use_container_width=True)
                 if ex_submit and ex_name:
-                    supabase.table("exercises").insert({
+                    supabase.table("dance_exercises").insert({
                         "name": ex_name,
                         "reps": ex_reps,
                         "notes": ex_notes,
@@ -184,7 +184,7 @@ if supabase is not None:
                             st.caption(f"📝 {ex['notes']}")
                     with c2:
                         if st.button("❌", key=f"del_ex_{ex['id']}", type="tertiary", help="Remove"):
-                            supabase.table("exercises").delete().eq("id", ex["id"]).execute()
+                            supabase.table("dance_exercises").delete().eq("id", ex["id"]).execute()
                             st.rerun()
                 else:
                     ex_check = st.checkbox(label, value=is_completed_today, key=f"ex_check_{ex['id']}")
@@ -193,7 +193,7 @@ if supabase is not None:
                 
                 if ex_check != is_completed_today:
                     new_date_value = today_str if ex_check else ""
-                    supabase.table("exercises").update({"last_completed_date": new_date_value}).eq("id", ex["id"]).execute()
+                    supabase.table("dance_exercises").update({"last_completed_date": new_date_value}).eq("id", ex["id"]).execute()
                     st.rerun()
 
     # --- TAB 3: CORRECTIONS ---
@@ -208,7 +208,7 @@ if supabase is not None:
             new_corr = st.text_area("What did the teacher say to work on?")
             corr_submit = st.form_submit_button("Add Correction", use_container_width=True)
             if corr_submit and new_corr:
-                supabase.table("corrections").insert({"text": new_corr}).execute()
+                supabase.table("dance_corrections").insert({"text": new_corr}).execute()
                 st.rerun()
             
         if not corrections_data:
@@ -222,7 +222,7 @@ if supabase is not None:
                         st.write(corr["text"])
                     with c2:
                         if st.button("❌", key=f"del_corr_{corr['id']}", type="tertiary", help="Remove"):
-                            supabase.table("corrections").delete().eq("id", corr["id"]).execute()
+                            supabase.table("dance_corrections").delete().eq("id", corr["id"]).execute()
                             st.rerun()
                 else:
                     st.write(corr["text"])
